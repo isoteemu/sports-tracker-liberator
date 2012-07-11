@@ -10,6 +10,10 @@ password = False
 auth_token = False
 calendar_id = None
 
+# Google uses rfc3339 for dates.
+def rfc3339(datetime):
+	return datetime.strftime('%Y-%m-%dT%H:%M:%SZ%z')
+
 config = ConfigParser.ConfigParser()
 config.read(['config.ini.dist', 'config.ini'])
 
@@ -40,10 +44,6 @@ else:
 			config.write(cfg_file)
 
 workouts = endomondo.workout_list()
-
-# Google uses rfc3339 for dates.
-def rfc3339(datetime):
-	return datetime.strftime('%Y-%m-%dT%H:%M:%SZ%Z')
 
 for workout in workouts:
 	event = {
