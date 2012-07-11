@@ -2,7 +2,7 @@
 /**
  * Endomondo API tracker script.
  * 
- * Purpose of this script is to tracke SSL requests from endomondo app.
+ * Purpose of this script is to proxy SSL requests from endomondo app.
  * By itself, it only logs queries, but with little dns faking and apache,
  * endomondo will accept it as authentic server.
  */
