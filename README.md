@@ -1,0 +1,1 @@
+Simple API (endomondo.py) for accessing (some) data from Endomondo server. See init.py for example, which stores workouts in google calendar.
