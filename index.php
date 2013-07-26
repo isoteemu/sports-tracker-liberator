@@ -7,7 +7,7 @@
  * endomondo will accept it as authentic server.
  */
 
-$content = "\n\n*** ENTRY *** ".date('H:M:s')."\n";
+$content = "\n\nFOO *** ENTRY *** ".date('H:M:s')."\n";
 
 $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') ? 'https://' : 'http://';
 
@@ -26,14 +26,27 @@ $context = stream_context_create($opts);
 
 $data = file_get_contents($url, false, $context);
 
-$content .= print_r(array(
+$reply = array(
 	'URL' => $url,
 	'SERVER' => $_SERVER,
 	'POST'   => $_POST,
 	'GET'	 => $_GET,
 	'DATA'	 => $data,
 	'HEADERS' => $http_response_header
-),1);
+);
+
+switch($_GET['compression']) {
+	case 'gzip' :
+		$reply['DATA'] = gzinflate(substr($data,10));
+		break;
+	case 'deflate' :
+		$reply['DATA'] = gzinflate(substr($data,2));
+		break;
+}
+
+
+$content .= print_r($reply,1);
+
 file_put_contents('/tmp/endomondo.txt', $content, FILE_APPEND);
 
 foreach($http_response_header as $header) {
