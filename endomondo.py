@@ -53,7 +53,7 @@ class Endomondo:
 	# Authentication url. Special case.
 	URL_AUTH		= 'https://api.mobile.endomondo.com/mobile/auth?v=2.4&action=PAIR'
 	# Page for latest workouts.
-	URL_WORKOUTS	= 'http://api.mobile.endomondo.com/mobile/api/workout/list?maxResults=40'
+	URL_WORKOUTS	= 'http://api.mobile.endomondo.com/mobile/api/workout/list?'
 	# Running track
 	URL_TRACK	= 'http://api.mobile.endomondo.com/mobile/readTrack'
 	# Music track
@@ -167,6 +167,7 @@ class Endomondo:
 			'authToken':	self.get_auth_token(),
 			'language':	'EN'
 		})
+
 		r = self.Requests.get(url, params=params)
 
 		if r.status_code != requests.codes.ok:
@@ -175,14 +176,35 @@ class Endomondo:
 
 		return r
 
-	# Retrieve latest workouts.
-	def workout_list(self):
-		r = self.make_request(self.URL_WORKOUTS)
+	""" Retrieve workouts.
+	@before: datetime object or iso format date string (%Y-%m-%d %H:%M:%S UTC)
+	@max_results: Maximum number of workouts to be returned.
+	"""
+
+	def workout_list(self, max_results=40, before=None):
+
+		params = {
+			'maxResults': max_results
+		}
+
+		if before != None:
+			if type(before) is datetime:
+				## Endomondo _really_ needs timezone
+				if before.tzinfo != None:
+					before = before.astimezone(tzinfo('UTC'))
+
+				params['before'] = before.strftime('%Y-%m-%d %H:%M:%S UTC')
+			elif type(before) is str:
+				params['before'] = before
+			else:
+				raise ValueError("param 'before needs to be datetime object or iso formatted string.")
+
+		r = self.make_request(self.URL_WORKOUTS, params)
 
 		workouts = []
 		for entry in r.json()['data']:
 			workout = EndomondoWorkout(self)
-			
+
 			workout.id = entry['id']
 
 			if entry.has_key('name'):
