@@ -305,7 +305,7 @@ class EndomondoWorkout(Workout):
 				'sensor': 'false'
 			}
 			g_r = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params=geocode_params)
-			if g_r.status_code == requests.codes.ok and g_r.json['status'] == 'OK':
-				self._location = g_r.json['results'][0]['formatted_address']
+			if g_r.status_code == requests.codes.ok and g_r.json()['status'] == 'OK':
+				self._location = g_r.json()['results'][0]['formatted_address']
 		return self._location
 
