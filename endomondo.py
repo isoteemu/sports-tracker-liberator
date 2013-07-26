@@ -287,8 +287,10 @@ class EndomondoWorkout(Workout):
 	_location = None
 
 	def location(self):
-	'''Lazy loading for location.
-	'''
+		''' Lazy loading for location.
+		Translates gps track into human readable string by using googles' geocoding api.
+		'''
+
 		if self._location == False:
 			self._location = None
 			r = self.sports_tracker.make_request(self.sports_tracker.URL_TRACK, {'trackId': self.id})
