@@ -180,7 +180,7 @@ class Endomondo:
 		r = self.make_request(self.URL_WORKOUTS)
 
 		workouts = []
-		for entry in r.json['data']:
+		for entry in r.json()['data']:
 			workout = EndomondoWorkout(self)
 			
 			workout.id = entry['id']
@@ -192,7 +192,7 @@ class Endomondo:
 			else:
 				print self.sports_map
 				print "Sports entry: %s" % entry['sport']
-				workout.summary = 'Sports'		
+				workout.summary = 'Sports'
 
 			workout.start_time = self._parse_date(entry['start_time'])
 			workout.end_time   = workout.start_time + timedelta(seconds=entry['duration_sec'])
@@ -210,7 +210,6 @@ class Endomondo:
 	def _parse_date(self, date):
 		return datetime.strptime(date, "%Y-%m-%d %H:%M:%S %Z")
 
-		
 """ Workout class. Bad design. """
 
 class Workout:
