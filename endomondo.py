@@ -7,25 +7,38 @@ Provides Endomondo API wrapper, which uses Endomondo mobile API
 instead of HTML scrapping. Only some features are currently implemented,
 but as Endomondo app uses HTTP, it's somewhat easy to implemented rest.
 To retrieve network stream from from andoid, run on adb shell:
-	tcpdump -n -s 0 -w -| nc -l -p 11233
+	>>> tcpdump -n -s 0 -w -| nc -l -p 11233
 
 and on Linux:
-	adb forward tcp:11233 tcp:11233
-	nc 127.0.0.1 11233 | wireshark -k -S -i -
+	>>> adb forward tcp:11233 tcp:11233
+	>>> nc 127.0.0.1 11233 | wireshark -k -S -i -
 
 To use, first authenticat client. Currently it seems that auth_token is
 never changed, so only once is necessary and storing auth_toke somewhere
 should be sufficient:
 
-	sports_tracker = Endomond('user@email.com', 'password')
-	for workout in sports_tracker.workout_list():
-		print workout.summary
+	>>> sports_tracker = Endomond('user@email.com', 'password')
+	>>> for workout in sports_tracker.workout_list():
+	>>>	print workout.summary
 
 OR
 
-	sports_tracker = Endomond()
-	sports_tracker.auth_token = '***blahblah***'
+	>>> sports_tracker = Endomond()
+	>>> sports_tracker.auth_token = '***blahblah***'
 
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 2.1 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import requests
@@ -50,13 +63,18 @@ class Endomondo:
 	# Using session - provides keep-alive in urllib3
 	Requests = requests.session()
 
-	# Authentication url. Special case.
+	'''Well known urls.
+
+	Well known urls for retrieving workout data from Endomondo. Thease are currently implementing version seven (:attribute:`Endomondo.app_version` ) of Endomondo App api, and those has been changed for version eight.
+
+	:attribute:`Endomondo.URL_AUTH` Url for requesting authentication token.
+	:attribute:`Endomondo.URL_WORKOUTS` Workouts (later in app called as "history" page) listing page.
+	:attribute:`Endomondo.URL_TRACK` Running track
+	:attribute:`Endomondo.URL_PLAYLIST` Music tracks
+	'''
 	URL_AUTH		= 'https://api.mobile.endomondo.com/mobile/auth?v=2.4&action=PAIR'
-	# Page for latest workouts.
 	URL_WORKOUTS	= 'http://api.mobile.endomondo.com/mobile/api/workout/list?'
-	# Running track
 	URL_TRACK	= 'http://api.mobile.endomondo.com/mobile/readTrack'
-	# Music track
 	URL_PLAYLIST	= 'http://api.mobile.endomondo.com/mobile/api/workout/playlist'
 
 	sports_map = {
@@ -120,7 +138,7 @@ class Endomondo:
 		93: 'Climbing',
 		94: 'Treadmill walking'
 	}
-	
+
 	def __init__(self, email=None, password=None):
 		
 		self.Requests.headers['User-Agent'] = "Dalvik/1.4.0 (Linux; U; %s %s; %s Build/GRI40)" % (self.os, self.os_version, self.model)
@@ -129,12 +147,21 @@ class Endomondo:
 			self.auth_token = self.request_auth_token(email, password)
 
 	def get_auth_token(self):
+		'''Return authentication token.
+		If token is not defined, requests new. This token can be saved between sessions.
+		'''
+
 		if self.auth_token:
 			return self.auth_token
 		self.auth_token = self.request_auth_token()
 		return self.auth_token
 
 	def request_auth_token(self, email, password):
+		''' Request new authentication token from Endomondo server
+
+		:param email: Email for login.
+		:param password: Password for login.
+		'''
 		params = {
 			'email':			email,
 			'password':		password,
@@ -161,8 +188,12 @@ class Endomondo:
 		
 		return False
 
-	# Helper for generating requests - can't be used in athentication.
 	def make_request(self, url, params={}):
+		''' Helper for generating requests - can't be used in athentication.
+
+		:param url: base url for request. Well know are currently defined in :attribute:`Endomondo.URL_WORKOUTS` and :attribute:`Endomondo.URL_TRACK`.
+		:param params: additional parameters to be passed in GET string.
+		'''
 		params.update({
 			'authToken':	self.get_auth_token(),
 			'language':	'EN'
@@ -176,12 +207,13 @@ class Endomondo:
 
 		return r
 
-	""" Retrieve workouts.
-	@before: datetime object or iso format date string (%Y-%m-%d %H:%M:%S UTC)
-	@max_results: Maximum number of workouts to be returned.
-	"""
 
 	def workout_list(self, max_results=40, before=None):
+		""" Retrieve workouts.
+
+		:param before: datetime object or iso format date string (%Y-%m-%d %H:%M:%S UTC)
+		:param max_results: Maximum number of workouts to be returned.
+		"""
 
 		params = {
 			'maxResults': max_results
@@ -255,6 +287,8 @@ class EndomondoWorkout(Workout):
 	_location = None
 
 	def location(self):
+	'''Lazy loading for location.
+	'''
 		if self._location == False:
 			self._location = None
 			r = self.sports_tracker.make_request(self.sports_tracker.URL_TRACK, {'trackId': self.id})
