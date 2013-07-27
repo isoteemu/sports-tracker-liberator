@@ -45,7 +45,7 @@ import requests
 # For deviceId generation
 import uuid, socket
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
 class Endomondo:
 	# Some parameters what Endomondo App sends.
@@ -67,10 +67,15 @@ class Endomondo:
 
 	Well known urls for retrieving workout data from Endomondo. Thease are currently implementing version seven (:attribute:`Endomondo.app_version` ) of Endomondo App api, and those has been changed for version eight.
 
+	Version 8 urls:
+	http://api.mobile.endomondo.com/mobile/api/workout/get?authToken=<token>&fields=device,simple,basic,motivation,interval,hr_zones,weather,polyline_encoded_small,points,lcp_count,tagged_users,pictures,feed&workoutId=215638526&deflate=true&compression=deflate
+	http://api.mobile.endomondo.com/mobile/api/workouts?authToken=<token>&fields=device,simple,basic,lcp_count&maxResults=20&deflate=true&compression=deflate
+
 	:attribute:`Endomondo.URL_AUTH` Url for requesting authentication token.
 	:attribute:`Endomondo.URL_WORKOUTS` Workouts (later in app called as "history" page) listing page.
 	:attribute:`Endomondo.URL_TRACK` Running track
 	:attribute:`Endomondo.URL_PLAYLIST` Music tracks
+
 	'''
 	URL_AUTH		= 'https://api.mobile.endomondo.com/mobile/auth?v=2.4&action=PAIR'
 	URL_WORKOUTS	= 'http://api.mobile.endomondo.com/mobile/api/workout/list?'
