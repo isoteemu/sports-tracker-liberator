@@ -72,10 +72,17 @@ if __name__ == '__main__':
 	endomondoapi.set_auth_token(auth_token)
 
 	##
+	## * Retrieve user profile info
+	##
+	user_data = endomondoapi.get_account_info()['data']
+	print "Hello {first_name} {last_name}".format(**user_data)
+
+
+	##
 	## * Retrieve last workouts.
 	##
 	print "Your last 5 workouts:"
-	for workout in endomondoapi.get_workouts( maxResults=1 ):
+	for workout in endomondoapi.get_workouts( maxResults=5 ):
 		print "[%s] %s at %s" % (workout.id, workout.name, workout.start_time)
 
 	##

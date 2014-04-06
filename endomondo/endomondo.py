@@ -22,6 +22,8 @@ URL_WORKOUT_POST	= 'https://api.mobile.endomondo.com/mobile/api/workout/post'
 URL_TRACK			= 'https://api.mobile.endomondo.com/mobile/track'
 URL_PLAYLIST		= 'https://api.mobile.endomondo.com/mobile/playlist'
 
+URL_ACCOUNT_GET		= 'https://api.mobile.endomondo.com/mobile/api/profile/account/get'
+
 '''
 	Playlist items are sent one-by-one, using post and in format:
 	>>> 1;I Will Survive;Gloria Gaynor;;;;2014-04-05 17:22:56 UTC;2014-04-05 17:23:26 UTC;;
@@ -146,7 +148,7 @@ class MobileApi(object):
 		'''
 		# Endomondo has an odd way of randomly compressing things
 		# TODO: Implement gzip
-		if params.get('deflate') == 'true':
+		if params.get('compression') == 'deflate':
 			try:
 				text = zlib.decompress(r.content)
 				r._content = text
@@ -161,6 +163,27 @@ class MobileApi(object):
 			pass
 
 		return r
+
+	def get_account_info(self, **kwargs):
+		''' Return data about current account
+		'''
+		kwargs.setdefault('fields', ['hr_zones','emails'])
+		# App uses compressions for both ways, we don't handle that yet.
+		#kwargs.setdefault('compression', 'deflate')
+		#kwargs.setdefault('deflate', 'true')
+
+		r = self.make_request(URL_ACCOUNT_GET, params=kwargs)
+
+		data = r.json()
+
+		if data.has_key('error'):
+			err_type = data['error'].get('type')
+			if err_type == 'AUTH_FAILED':
+				raise AuthenticationError('Authentication token was not valid.')
+			else:
+				raise EndomondoException('Error while loading data from Endomondo: %s' % err_type)
+
+		return data
 
 	def get_workouts(self, before=None, **kwargs):
 		''' Return list of workouts
