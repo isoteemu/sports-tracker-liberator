@@ -1,324 +1,321 @@
-#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
-""" Simple API for accessing Endomondo data.
+from . import __version__, __title__
+from .workout import sports, Workout, TrackPoint
+from .utils import chunks, str_to_datetime, datetime_to_str, gzip_string
+from .exceptions import *
 
-Provides Endomondo API wrapper, which uses Endomondo mobile API
-instead of HTML scrapping. Only some features are currently implemented,
-but as Endomondo app uses HTTP, it's somewhat easy to implemented rest.
-To retrieve network stream from from andoid, run on adb shell:
-	>>> tcpdump -n -s 0 -w -| nc -l -p 11233
-
-and on Linux:
-	>>> adb forward tcp:11233 tcp:11233
-	>>> nc 127.0.0.1 11233 | wireshark -k -S -i -
-
-To use, first authenticat client. Currently it seems that auth_token is
-never changed, so only once is necessary and storing auth_toke somewhere
-should be sufficient:
-
-	>>> sports_tracker = Endomond('user@email.com', 'password')
-	>>> for workout in sports_tracker.workout_list():
-	>>>	print workout.summary
-
-OR
-
-	>>> sports_tracker = Endomond()
-	>>> sports_tracker.auth_token = '***blahblah***'
-
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation, either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""
-
-__title__ 	= 'sports-tracker-liberator'
-__version__	= '0.1'
-__build__	= 0x000100
-__license__	= 'LGPL 2.1'
+import platform
+import uuid, socket
+import random
+from datetime import datetime, timedelta
 
 import requests
-# For deviceId generation
-import uuid, socket
+import zlib
 
-from datetime import datetime, timedelta, tzinfo
+import logging
 
-class Endomondo:
-	# Some parameters what Endomondo App sends.
-	country = 'GB'
-	device_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname()))
-	os = "Android"
-	app_version="7.1"
-	app_variant="M-Pro"
-	os_version="2.3.7"
-	model="HTC Vision"
+URL_AUTHENTICATE	= 'https://api.mobile.endomondo.com/mobile/auth'
+URL_WORKOUTS		= 'https://api.mobile.endomondo.com/mobile/api/workouts'
+URL_WORKOUT_GET 	= 'https://api.mobile.endomondo.com/mobile/api/workout/get'
+URL_WORKOUT_POST	= 'https://api.mobile.endomondo.com/mobile/api/workout/post'
+URL_TRACK			= 'https://api.mobile.endomondo.com/mobile/track'
+URL_PLAYLIST		= 'https://api.mobile.endomondo.com/mobile/playlist'
 
-	# Auth token - seems to stay same, even when disconnecting - Security flaw in Endomondo side, but easy to fix on server side.
-	auth_token = None
+'''
+	Playlist items are sent one-by-one, using post and in format:
+	>>> 1;I Will Survive;Gloria Gaynor;;;;2014-04-05 17:22:56 UTC;2014-04-05 17:23:26 UTC;;
+	[...]
+	>>> 6;Holding Out for a Hero;Bonnie Tyler;;;;2014-04-05 17:38:46 UTC;2014-04-05 17:44:47 UTC;<lat>;<lng>
+'''
 
-	# Using session - provides keep-alive in urllib3
-	Requests = requests.session()
+class MobileApi(object):
 
-	'''Well known urls.
+	auth_token		= None
+	secure_token	= None
 
-	Well known urls for retrieving workout data from Endomondo. Thease are currently implementing version seven (:attribute:`Endomondo.app_version` ) of Endomondo App api, and those has been changed for version eight.
+	Requests		= requests.session()
 
-	Version 8 urls:
-	http://api.mobile.endomondo.com/mobile/api/workout/get?authToken=<token>&fields=device,simple,basic,motivation,interval,hr_zones,weather,polyline_encoded_small,points,lcp_count,tagged_users,pictures,feed&workoutId=215638526&deflate=true&compression=deflate
-	http://api.mobile.endomondo.com/mobile/api/workouts?authToken=<token>&fields=device,simple,basic,lcp_count&maxResults=20&deflate=true&compression=deflate
-
-	:attribute:`Endomondo.URL_AUTH` Url for requesting authentication token.
-	:attribute:`Endomondo.URL_WORKOUTS` Workouts (later in app called as "history" page) listing page.
-	:attribute:`Endomondo.URL_TRACK` Running track
-	:attribute:`Endomondo.URL_PLAYLIST` Music tracks
-
+	''' Details which Endomondo app sends back to home.
+		If, for some reason, endomondo blocks this library, thease are likely what values they are using to validate against.
 	'''
-	URL_AUTH		= 'https://api.mobile.endomondo.com/mobile/auth?v=2.4&action=PAIR'
-	URL_WORKOUTS	= 'http://api.mobile.endomondo.com/mobile/api/workout/list?'
-	URL_TRACK	= 'http://api.mobile.endomondo.com/mobile/readTrack'
-	URL_PLAYLIST	= 'http://api.mobile.endomondo.com/mobile/api/workout/playlist'
-
-	sports_map = {
-		2: 'Cycling, sport',
-		1: 'Cycling, transport',
-		14: 'Fitness walking',
-		15: 'Golfing',
-		16: 'Hiking',
-		21: 'Indoor cycling',
-		9: 'Kayaking',
-		10: 'Kite surfing',
-		3: 'Mountain biking',
-		17: 'Orienteering',
-		19: 'Riding',
-		5: 'Roller skiing',
-		11: 'Rowing',
-		0: 'Running',
-		12: 'Sailing',
-		4: 'Skating',
-		6: 'Skiing, cross country',
-		7: 'Skiing, downhill',
-		8: 'Snowboarding',
-		20: 'Swimming',
-		18: 'Walking',
-		13: 'Windsurfing',
-		22: 'Other',
-		23: 'Aerobics',
-		24: 'Badminton',
-		25: 'Baseball',
-		26: 'Basketball',
-		27: 'Boxing',
-		28: 'Climbing stairs',
-		29: 'Cricket',
-		30: 'Elliptical training',
-		31: 'Dancing',
-		32: 'Fencing',
-		33: 'Football, American',
-		34: 'Football, rugby',
-		35: 'Football, soccer',
-		49: 'Gymnastics',
-		36: 'Handball',
-		37: 'Hockey',
-		48: 'Martial arts',
-		38: 'Pilates',
-		39: 'Polo',
-		40: 'Scuba diving',
-		41: 'Squash',
-		42: 'Table tennis',
-		43: 'Tennis',
-		44: 'Volleyball, beach',
-		45: 'Volleyball, indoor',
-		46: 'Weight training',
-		47: 'Yoga',
-		50: 'Step counter',
-		87: 'Circuit Training',
-		88: 'Treadmill running',
-		89: 'Skateboarding',
-		90: 'Surfing',
-		91: 'Snowshoeing',
-		92: 'Wheelchair',
-		93: 'Climbing',
-		94: 'Treadmill walking'
+	device_info		= {
+		'os':			platform.system(),
+		'model':		platform.python_implementation(),
+		'osVersion':	platform.release(),
+		'vendor':		'github/isoteemu',
+		'appVariant':	__title__,
+		'country':		'GB',
+		'v':			'2.4', # No idea, maybe api version?
+		'appVersion':	__version__,
+		'deviceId':		str(uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname())),
 	}
 
-	def __init__(self, email=None, password=None):
-		
-		self.Requests.headers['User-Agent'] = "Dalvik/1.4.0 (Linux; U; %s %s; %s Build/GRI40)" % (self.os, self.os_version, self.model)
+	def __init__(self, **kwargs):
+		'''
+			:param auth_token: Optional Previous authentication token to use.
+			:param email: Optional Authentication email.
+			:param password: Optional Authentication password.
+		'''
+		email = kwargs.get('email')
+		password = kwargs.get('password')
 
-		if email and password:
-			self.auth_token = self.request_auth_token(email, password)
+		if kwargs.get('auth_token'):
+			self.set_auth_token(kwargs.get('auth_token'))
+		elif email and password:
+			self.set_auth_token(self.request_auth_token(email, password))
+
+		if self.device_info['os'] in ['Linux']:
+			self.device_info['vendor'] = platform.linux_distribution()[0]
+
+		'''	User agent in endomondo app v. 10.1.1 is as:
+			com.endomondo.android.pro/10.1.1 (Linux; U; Android {android_version}; {locality}; {build_model}; {phone_build_specific}) {resolution} {manufacturer} {model}
+		'''
+		self.Requests.headers['User-Agent'] = '{appVariant}/{appVersion} ({os}; {osVersion}; {model}) {vendor}'.format(**self.device_info)
 
 	def get_auth_token(self):
-		'''Return authentication token.
-		If token is not defined, requests new. This token can be saved between sessions.
-		'''
-
-		if self.auth_token:
-			return self.auth_token
-		self.auth_token = self.request_auth_token()
 		return self.auth_token
 
+	def set_auth_token(self, auth_token):
+		self.auth_token = auth_token
+
 	def request_auth_token(self, email, password):
-		''' Request new authentication token from Endomondo server
+		''' Retrieve authentication token.
+			:param email: Endomondo login email
+			:param password: Endomondo login password
 
-		:param email: Email for login.
-		:param password: Password for login.
+			At version 10.1.1, returned values are:
+			action=PAIRED
+			authToken=<authtoken>
+			measure=METRIC
+			displayName=<name>
+			userId=<uid>
+			facebookConnected=<true|false>
+			secureToken=<securetoken>
+
+			secureToken is quite new, and needed for personal data retrieval.
 		'''
-		params = {
-			'email':			email,
-			'password':		password,
-			'country':		self.country,
-			'deviceId':		self.device_id,
-			'os'	:			self.os,
-			'appVersion':	self.app_version,
-			'appVariant':	self.app_variant,
-			'osVersion':		self.os_version,
-			'model':			self.model
-		}
 
-		r = self.Requests.get(self.URL_AUTH, params=params)
+		params = self.device_info
+		params.update({
+			'action':	'pair',
+			'email':	email,
+			'password':	password
+		})
+
+		r = self.Requests.get(URL_AUTHENTICATE, params=params)
 
 		lines = r.text.split("\n")
 		if lines[0] != "OK":
-			raise ValueError("Could not authenticate with Endomondo, Expected 'OK', got '%s'" % lines[0])
+
+			logging.warning("Logging failed into Endomondo, returned data was: %s" % r.text)
+			raise AuthenticationError("Could not authenticate with Endomondo, Expected 'OK', got '%s'" % lines[0])
 
 		lines.pop(0)
 		for line in lines:
 			key, value = line.split("=")
 			if key == "authToken":
 				return value
-		
+
 		return False
 
-	def make_request(self, url, params={}):
+	def make_request(self, url, params={}, method='GET', data=None, **kwargs):
 		''' Helper for generating requests - can't be used in athentication.
 
-		:param url: base url for request. Well know are currently defined in :attribute:`Endomondo.URL_WORKOUTS` and :attribute:`Endomondo.URL_TRACK`.
+		:param url: base url for request.
 		:param params: additional parameters to be passed in GET string.
 		'''
-		params.update({
-			'authToken':	self.get_auth_token(),
-			'language':	'EN'
-		})
 
-		r = self.Requests.get(url, params=params)
+		params.setdefault('authToken', self.auth_token)
+		params.setdefault('language', 'en')
+
+		# Flatten 'fields'
+		if type(params.get('fields')) is list:
+			params['fields'] = ','.join(params['fields'])
+
+		if params.get('gzip') == 'true':
+			data = gzip_string(data)
+
+		r = self.Requests.request(method, url, data=data, params=params, **kwargs)
 
 		if r.status_code != requests.codes.ok:
-			print "Could not retrieve URL %s" % r.url
-			r.raise_for_status()
+			logging.debug('Endomondo returned failed status code. Code: %s, message: %s' % (r.status_code, r.text))
+
+		r.raise_for_status()
+
+		'''
+		# Endomondo has an odd way of randomly compressing things
+		# TODO: Implement gzip
+		if params.get('deflate') == 'true':
+			try:
+				text = zlib.decompress(r.content)
+				r._content = text
+			except zlib.error as e:
+				logging.warning('Could not decompress endomondo returned data, even thought deflate was requested. Error: %s' % e)
+		'''
+		try:
+			data = r.json()
+			if data.has_key('error'):
+				logging.warning('Error loading data from Endomondo. Type: %s', data['error'].get('type'))
+		except:
+			pass
 
 		return r
 
+	def get_workouts(self, before=None, **kwargs):
+		''' Return list of workouts
+			:param before: Optional datetime object or iso format date string (%Y-%m-%d %H:%M:%S UTC)
+			:param maxResults: Optional Maximum number of workouts to be returned. Default is 20
+			:param deflate: Optional true or false. Default is false, whereas endomondo app default is true. Untested.
+			:param fields: Optional Comma separated list for endomondo properties to return. Default is: device,simple,basic,lcp_count
+		'''
 
-	def workout_list(self, max_results=40, before=None):
-		""" Retrieve workouts.
+		kwargs.setdefault('maxResults', 20)
+		# Default fields used by Endomondo 10.1 App
+		kwargs.setdefault('fields', ['device', 'simple', 'basic', 'lcp_count'])
 
-		:param before: datetime object or iso format date string (%Y-%m-%d %H:%M:%S UTC)
-		:param max_results: Maximum number of workouts to be returned.
-		"""
-
-		params = {
-			'maxResults': max_results
-		}
-
+		# Flatten 'before'
 		if before != None:
-			if type(before) is datetime:
-				## Endomondo _really_ needs timezone
-				if before.tzinfo != None:
-					before = before.astimezone(tzinfo('UTC'))
-
-				params['before'] = before.strftime('%Y-%m-%d %H:%M:%S UTC')
+			if isinstance(before, datetime):
+				kwargs['before'] = datetime_to_str(before)
 			elif type(before) is str:
-				params['before'] = before
+				kwargs['before'] = before
 			else:
 				raise ValueError("Param 'before' needs to be datetime object or iso formatted string.")
 
-		r = self.make_request(self.URL_WORKOUTS, params)
+		if kwargs.get('deflate') == 'true':
+			kwargs.setdefault('compression', 'deflate')
+
+		r = self.make_request(URL_WORKOUTS, kwargs)
 
 		workouts = []
-		for entry in r.json()['data']:
 
-			workout = EndomondoWorkout(self)
-
-			workout.id = entry['id']
-
-			if entry.has_key('name'):
-				workout.summary = entry['name']
-			elif self.sports_map.has_key(entry['sport']):
-				workout.summary = self.sports_map[entry['sport']]
-			else:
-				print self.sports_map
-				print "Sports entry: %s" % entry['sport']
-				workout.summary = 'Sports'
-
-			workout.start_time = self._parse_date(entry['start_time'])
-			workout.end_time   = workout.start_time + timedelta(seconds=entry['duration_sec'])
-
-			if entry.has_key('note'):
-				workout.note = entry['note']
-
-			if entry['has_points'] == True:
-				self._location = False
-
+		for entry in r.json().get('data', []):
+			workout = self.build_workout(entry)
 			workouts.append(workout)
+			#print '[{id}] {start_time}: {name}'.format(entry)
 
 		return workouts
 
-	def _parse_date(self, date):
-		return datetime.strptime(date, "%Y-%m-%d %H:%M:%S %Z")
-
-""" Workout class. Bad design. """
-
-class Workout:
-	"""
-	Data params. Endomondo provides a bunch of them, but we are only interested on some
-	"""
-	start_time = None
-	end_time = None
-	id = 0
-	sport = 0
-	summary = ""
-	note = ""
-	location = ""
-	
-	# Creator
-	sports_tracker = None
-	def __init__(self, sports_tracker):
-		self.sports_tracker = sports_tracker
-
-class EndomondoWorkout(Workout):
-	_location = None
-
-	def location(self):
-		''' Lazy loading for location.
-		Translates gps track into human readable string by using googles' geocoding api.
+	def get_workout(self, workout, **kwargs):
+		''' Retrieve workout.
+			:param workout: Workout ID, or ``Workout`` object to retrieve
+			:param fields: Optional list of endomondo properties to request
 		'''
 
-		if self._location == False:
-			self._location = None
-			r = self.sports_tracker.make_request(self.sports_tracker.URL_TRACK, {'trackId': self.id})
-			lines = r.text.split("\n");
-			if len(lines) < 2:
-				return self._location
+		# Default fields used by Endomondo 10.1 App
+		kwargs.setdefault('fields', [
+			'device', 'simple','basic', 'motivation', 'interval',
+			'hr_zones', 'weather', 'polyline_encoded_small', 'points',
+			'lcp_count', 'tagged_users', 'pictures', 'feed'
+		])
 
-			data = lines[2].split(";")
-			if data[2] == "" or data[3] == "":
-				return self._location
+		if isinstance(workout, Workout):
+			kwargs.setdefault('workoutId', workout.id)
+		else:
+			kwargs.setdefault('workoutId', int(workout))
 
-			geocode_params = {
-				'latlng': data[2]+","+data[3],
-				'sensor': 'false'
-			}
-			g_r = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params=geocode_params)
-			if g_r.status_code == requests.codes.ok and g_r.json()['status'] == 'OK':
-				self._location = g_r.json()['results'][0]['formatted_address']
-		return self._location
+		r = self.make_request(URL_WORKOUT_GET, kwargs)
+		data = r.json()
 
+		if data.has_key('error'):
+			err_type = data['error'].get('type')
+			if err_type == 'NOT_FOUND':
+				raise NotFoundException('Item ``%s`` was not found in Endomondo.' % kwargs['workoutId'])
+			else:
+				raise EndomondoException('Error while loading data from Endomondo: %s' % err_type)
+
+		workout = self.build_workout(data)
+		return workout
+
+	def build_workout(self, properties):
+		''' Helper to build ``Workout`` model from request response.'''
+		workout = Workout(properties)
+		return workout
+
+	def post_workout(self, workout, properties={}):
+		''' Post workout in endomondo.
+
+			At most basic, it should look like: 
+            [workoutId] => -8848933288523797092
+            [sport] => 46
+            [duration] => 180
+            [gzip] => true
+            [audioMessage] => true
+            [goalType] => BASIC
+            [extendedResponse] => true
+            [calories] => 18
+            [hydration] => 0.012676
+
+			:param workout: Workout object
+			:param properties: Additional properties.
+		'''
+
+		properties.setdefault('audioMessage', 'true')
+		properties.setdefault('goalType', 'BASIC')
+		properties.setdefault('extendedResponse', 'true')
+
+		# A "Bug" in endomondo infrastructure; If gzip is not defined, Endomondo
+		# will complain about missing TrackPoints (not directly related to ``Workout.TrackPoint``)
+		properties.setdefault('gzip', 'true')
+
+		if not workout.device['workout_id']:
+			workout.device['workout_id'] = random.randint(-9999999999999999999, 9999999999999999999)
+
+		if workout.id:
+			properties.setdefault('workoutId', workout.id)
+		else:
+			properties.setdefault('workoutId', workout.device['workout_id'])
+		
+		properties.setdefault('sport', workout.sport)
+		properties.setdefault('calories', workout.calories)
+		properties.setdefault('duration', workout.duration)
+		properties.setdefault('hydration', workout.hydration)
+		properties.setdefault('heartRateAvg', workout.heart_rate_avg)
+
+		# Create pseudo point, if none exists
+		if len(workout.points) == 0:
+			point = TrackPoint({
+				'time':	workout.start_time,
+				'dist':	workout.distance,
+				'inst': '3'
+			})
+			workout.addPoint(point)
+
+		# App posts only 100 items, so multiple submissions might be needed.
+		for chunk in chunks(workout.points,100):
+			
+			data = '\n'.join([self.flatten_trackpoint(i) for i in chunk])
+			data = data+"\n"
+
+			r = self.make_request(URL_TRACK, params=properties, method='POST', data=data)
+
+			r.raise_for_status()
+			lines = r.text.split("\n")
+			if lines[0] != 'OK':
+				raise EndomondoException('Could not post track. Error ``%s``. Data may be partially uploaded' % lines[0])
+
+			workout.id = int(lines[1].split('=')[1])
+
+		logging.debug("Saved workout ID: %s" % workout.id)
+
+		return workout
+
+	def flatten_trackpoint(self, track_point):
+		''' Convert ``TrackPoint`` into Endomondo textual presentation
+			:param track_point: ``TrackPoint``.
+		'''
+
+		data = {
+			'time':		datetime_to_str(track_point.time),
+			'lng':		track_point.lng,
+			'lat':		track_point.lat,
+			'dist':		round(track_point.dist,2),
+			'speed':	track_point.speed,
+			'alt':		track_point.alt,
+			'hr':		track_point.hr,
+			'inst':		track_point.inst
+		}
+
+		text = u'{time};{inst};{lat};{lng};{dist};{speed};{alt};{hr};'.format(**data)
+		return text
