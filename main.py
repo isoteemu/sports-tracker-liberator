@@ -77,7 +77,6 @@ if __name__ == '__main__':
 	user_data = endomondoapi.get_account_info()['data']
 	print "Hello {first_name} {last_name}".format(**user_data)
 
-
 	##
 	## * Retrieve last workouts.
 	##

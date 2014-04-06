@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 import requests
 import zlib
+import json
 
 import logging
 
@@ -23,6 +24,13 @@ URL_TRACK			= 'https://api.mobile.endomondo.com/mobile/track'
 URL_PLAYLIST		= 'https://api.mobile.endomondo.com/mobile/playlist'
 
 URL_ACCOUNT_GET		= 'https://api.mobile.endomondo.com/mobile/api/profile/account/get'
+URL_ACCOUNT_POST	= 'https://api.mobile.endomondo.com/mobile/api/profile/account/post'
+
+UNITS_METRIC		= 'METRIC'
+UNITS_IMPERIAL		= 'IMPERIAL'
+
+GENDER_MALE			= 'MALE'
+GENDER_FEMALE		= 'FEMALE'
 
 '''
 	Playlist items are sent one-by-one, using post and in format:
@@ -135,8 +143,10 @@ class MobileApi(object):
 		if type(params.get('fields')) is list:
 			params['fields'] = ','.join(params['fields'])
 
-		if params.get('gzip') == 'true':
+		if data and params.get('gzip') == 'true':
 			data = gzip_string(data)
+		elif data and params.get('deflate') == 'true':
+			data = zlib.compress(data)
 
 		r = self.Requests.request(method, url, data=data, params=params, **kwargs)
 
@@ -159,31 +169,96 @@ class MobileApi(object):
 			data = r.json()
 			if data.has_key('error'):
 				logging.warning('Error loading data from Endomondo. Type: %s', data['error'].get('type'))
+
+				err_type = data['error'].get('type')
+				if err_type == 'AUTH_FAILED':
+					raise AuthenticationError('Authentication token was not valid.')
+
 		except:
-			pass
+			'''pass'''
 
 		return r
 
 	def get_account_info(self, **kwargs):
-		''' Return data about current account
+		''' Return data about current account.
+			:param fields: Properties to retrieve. Default is `hr_zones`,`emails`.
+			:return: Json object. Default fields:
+			>>> {"data":{
+			>>> 	"hr_zones":{"max":202,"z1":131,"z4":174,"z5":188,"z2":145,"z3":159,"rest":60},
+			>>>		"weight_kg":int(),
+			>>>		"phone":str("+3585551234"),
+			>>>		"sex":str(<GENDER_MALE|GENDER_FEMALE>),
+			>>>		"sync_time":datetime(),
+			>>>		"date_of_birth":datetime(),
+			>>>		"emails":[{"id":int(),"email":str('email@example.com'),"verified":bool(),"primary":bool()}],
+			>>>		"lounge_member":bool(),
+			>>>		"favorite_sport":int(),
+			>>>		"units":str(<UNITS_METRIC|UNITS_IMPERIAL>,
+			>>>		"country":str("CC"),
+			>>>		"id":int(),
+			>>>		"time_zone":str("+02:00"),
+			>>>		"first_name":str("name"),
+			>>>		"middle_name":str("middle"),
+			>>>		"last_name":str("lastname"),
+			>>>		"favorite_sport2":int(),
+			>>>		"weight_time":datetime(),
+			>>>		"created_time":datetime(),
+			>>>		"height_cm":int()
+			>>> }}
 		'''
+
 		kwargs.setdefault('fields', ['hr_zones','emails'])
+
 		# App uses compressions for both ways, we don't handle that yet.
 		#kwargs.setdefault('compression', 'deflate')
-		#kwargs.setdefault('deflate', 'true')
+		kwargs.setdefault('deflate', 'true')
 
 		r = self.make_request(URL_ACCOUNT_GET, params=kwargs)
 
 		data = r.json()
 
-		if data.has_key('error'):
-			err_type = data['error'].get('type')
-			if err_type == 'AUTH_FAILED':
-				raise AuthenticationError('Authentication token was not valid.')
-			else:
-				raise EndomondoException('Error while loading data from Endomondo: %s' % err_type)
+		# Convert into datetime objects
+		date_of_birth 	= data['data'].get('date_of_birth')
+		sync_time		= data['data'].get('sync_time')
+		weight_time		= data['data'].get('weight_time')
+
+		if date_of_birth:
+			data['data']['date_of_birth'] = str_to_datetime(date_of_birth)
+		if sync_time:
+			data['data']['sync_time'] = str_to_datetime(sync_time)
+		if weight_time:
+			data['data']['weight_time'] = str_to_datetime(weight_time)
 
 		return data
+
+	def post_account_info(self, account_info={}, **kwargs):
+		''' Save user info.
+
+			:param account_info: Dict of propeties to post. Known are:
+			>>> {
+			>>> 	"weight_kg":int(),
+			>>> 	"first_name":str("name"),
+			>>>		"sex":<GENDER_MALE|GENDER_FEMALE>,
+			>>>		"middle_name":str("Middlename"),
+			>>>		"last_name":str("Familyname"),
+			>>>		"date_of_birth":datetime(),
+			>>>		"height_cm":int(),
+			>>>		"units":<UNITS_IMPERIAL|UNITS_METRIC>
+			>>>	}
+		'''
+
+		# Endomondo App uses deflate, but at current time it's not implemented.
+		#kwargs.setdefault('compression', 'deflate')
+		kwargs.setdefault('deflate', 'true')
+
+
+		if account_info.has_key('date_of_birth'):
+			account_info['date_of_birth'] = datetime_to_str(account_info.get('date_of_birth'))
+
+		data = json.dumps(account_info)
+
+		r = self.make_request(URL_ACCOUNT_POST, params=kwargs, method='POST', data=data)
+		return r.json()
 
 	def get_workouts(self, before=None, **kwargs):
 		''' Return list of workouts
@@ -313,7 +388,6 @@ class MobileApi(object):
 
 			r = self.make_request(URL_TRACK, params=properties, method='POST', data=data)
 
-			r.raise_for_status()
 			lines = r.text.split("\n")
 			if lines[0] != 'OK':
 				raise EndomondoException('Could not post track. Error ``%s``. Data may be partially uploaded' % lines[0])
