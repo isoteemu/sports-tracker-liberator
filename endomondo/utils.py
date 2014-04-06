@@ -12,6 +12,9 @@ def datetime_to_str(date):
 	''' Convert datetime object into string presentation
 		TODO: Convert local timezone to UTC.
 	'''
+	if type(date) == str:
+		return date
+
 	if date.tzinfo != None:
 		date = date.astimezone(tzinfo('UTC'))
 	text = date.strftime('%Y-%m-%d %H:%M:%S UTC')
