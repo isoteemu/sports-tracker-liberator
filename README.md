@@ -77,7 +77,7 @@ To create workout:
 	# Duration in seconds
 	workout.duration = 600
 
-	endomondo.post_workout(workout=workout, properties={'audioMessage': 'false'])
+	endomondo.post_workout(workout=workout, properties={'audioMessage': 'false'})
 
 	if workout.id:
 		print "Saved!"
